@@ -1,0 +1,2 @@
+EANSEARCH_API_KEY = "PUT_YOUR_KEY_HERE"
+DATABASE_PATH = "data/books.db"
