@@ -94,3 +94,10 @@ pip install -r requirements.txt
 
 python app.py
 
+---
+
+
+## Build .exe (Windows)
+pip install pyinstaller
+#run in root directory
+pyinstaller --onefile --windowed --name "BookScanner" app.py
