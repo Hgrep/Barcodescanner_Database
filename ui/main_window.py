@@ -1,3 +1,22 @@
+"""
+main_window.py
+
+Tkinter-based UI for the Book Barcode Scanner system.
+
+Data Inputs:
+- User scans barcodes via scanner or manual entry.
+- User enters borrower names for loans.
+- Search strings for filtering library or loans tables.
+
+Data Outputs:
+- Library tab: Displays all books with fields:
+    Title, Barcode, ISBN, Author, Publisher, Keywords, Count
+- Loans tab: Displays active loans with fields:
+    Title, Borrower, Loan Date
+- Log window: Shows scan, lookup, pipeline, and DB messages
+- Dialogs: Ask user for confirmation or borrower names
+"""
+
 import tkinter as tk
 from tkinter import ttk, simpledialog, messagebox
 import threading
@@ -9,21 +28,37 @@ from services.metadata_pipeline import MetadataPipeline
 
 
 class MainWindow:
+    """
+    Main UI window for the barcode scanner system.
+    Handles scanning, library display, loans, filtering, and returning books.
+    """
+
     def __init__(self, root):
+        """
+        Initialize the UI components and services.
+
+        Args:
+            root (tk.Tk): The Tkinter root window.
+        """
         self.root = root
         self.root.title("Book Barcode Scanner")
 
+        # Services
         self.scanner = ScannerService()
         self.db = DatabaseService()
         self.isbn = ISBNLookupService()
         self.pipeline = MetadataPipeline()
 
+        # Cached data for filtering
         self.library_cache = []
         self.loans_cache = []
 
         self._build_ui()
 
+    # -------------------- UI BUILDING --------------------
+
     def _build_ui(self):
+        """Build the main notebook and tabs."""
         notebook = ttk.Notebook(self.root)
         notebook.pack(fill=tk.BOTH, expand=True)
 
@@ -42,6 +77,7 @@ class MainWindow:
     # -------------------- SCANNER TAB --------------------
 
     def _build_scan_tab(self):
+        """Create scan tab UI elements: entry, buttons, log window."""
         frame = ttk.Frame(self.scan_tab, padding=10)
         frame.pack(fill=tk.BOTH, expand=True)
 
@@ -63,9 +99,11 @@ class MainWindow:
     # -------------------- LIBRARY TAB --------------------
 
     def _build_library_tab(self):
+        """Create library tab with search bar and treeview."""
         frame = ttk.Frame(self.library_tab, padding=10)
         frame.pack(fill=tk.BOTH, expand=True)
 
+        # Search bar
         search_frame = ttk.Frame(frame)
         search_frame.pack(fill=tk.X, pady=(0, 5))
 
@@ -74,8 +112,8 @@ class MainWindow:
         self.library_search.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.library_search.bind("<KeyRelease>", self.filter_library)
 
+        # Treeview columns
         self.cols = ("Title", "Barcode", "ISBN", "Author", "Publisher", "Keywords", "Count")
-
         self.tree = ttk.Treeview(frame, columns=self.cols, show="headings")
 
         widths = {
@@ -93,12 +131,12 @@ class MainWindow:
             self.tree.column(col, width=widths.get(col, 140), anchor="w")
 
         self.tree.pack(fill=tk.BOTH, expand=True)
-
         ttk.Button(frame, text="Refresh Library", command=self.refresh_library).pack(pady=6)
 
     # -------------------- LOANS TAB --------------------
 
     def _build_loans_tab(self):
+        """Create loans tab with scan entry, search, and loan treeview."""
         frame = ttk.Frame(self.loans_tab, padding=10)
         frame.pack(fill=tk.BOTH, expand=True)
 
@@ -108,31 +146,37 @@ class MainWindow:
         self.loan_entry.pack(fill=tk.X, pady=5)
         self.loan_entry.bind("<Return>", self.on_loan_scan)
 
+        # Search bar
         search_frame = ttk.Frame(frame)
         search_frame.pack(fill=tk.X, pady=(5, 5))
-
         ttk.Label(search_frame, text="Search:").pack(side=tk.LEFT, padx=(0, 5))
         self.loan_search = ttk.Entry(search_frame)
         self.loan_search.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.loan_search.bind("<KeyRelease>", self.filter_loans)
 
+        # Treeview columns
         cols = ("Title", "Borrower", "Loan Date")
-
         self.loan_tree = ttk.Treeview(frame, columns=cols, show="headings")
         for col in cols:
             self.loan_tree.heading(col, text=col)
             self.loan_tree.column(col, width=260, anchor="w")
 
         self.loan_tree.pack(fill=tk.BOTH, expand=True, pady=5)
-
         ttk.Button(frame, text="Refresh Loans", command=self.refresh_loans).pack()
 
-        # Bind double-click to return loaned book
+        # Bind double-click to return book
         self.loan_tree.bind("<Double-1>", self.on_loan_return)
 
     # -------------------- SORTING --------------------
 
     def sort_by(self, col, descending):
+        """
+        Sort library treeview by column.
+
+        Args:
+            col (str): Column name
+            descending (bool): Sort descending if True, ascending if False
+        """
         data = [(self.tree.set(child, col), child) for child in self.tree.get_children("")]
 
         try:
@@ -148,33 +192,52 @@ class MainWindow:
     # -------------------- LOGGING --------------------
 
     def log_stage(self, stage, msg):
+        """
+        Log a message to the scan tab log window.
+
+        Args:
+            stage (str): Stage of processing (SCAN, LOOKUP, PIPELINE, DB)
+            msg (str): Message to display
+        """
         self.log.insert(tk.END, f"[{stage}] {msg}\n")
         self.log.see(tk.END)
 
-    # -------------------- SCAN PIPELINE --------------------
+    # -------------------- SCANNER METHODS --------------------
 
     def start_scan(self):
+        """Start scanning and clear previous buffer."""
         self.scanner.start()
         self.scan_entry.focus_set()
         self.log_stage("STATE", "Scanning started")
 
     def stop_scan(self):
+        """Stop scanning and process buffered barcodes asynchronously."""
         scans = self.scanner.stop()
         self.log_stage("STATE", f"Processing {len(scans)} barcodes...")
         threading.Thread(target=self.process_scans, args=(scans,), daemon=True).start()
 
     def on_scan(self, event):
+        """
+        Handle manual barcode entry via Return key.
+
+        Args:
+            event: Tkinter event
+        """
         code = self.scan_entry.get().strip()
         self.scan_entry.delete(0, tk.END)
         self.scan_entry.focus_set()
-
         if not code:
             return
-
         self.scanner.add_scan(code)
         self.log_stage("SCAN", f"Scanned: {code}")
 
     def process_scans(self, scans):
+        """
+        Process scanned barcodes: lookup ISBN, enrich metadata, and insert into DB.
+
+        Args:
+            scans (list[str]): List of scanned barcode strings
+        """
         for barcode in scans:
             self.log_stage("SCAN", f"Raw barcode: {barcode!r}")
 
@@ -211,34 +274,41 @@ class MainWindow:
 
         self.root.after(0, self.refresh_library)
 
-    # -------------------- LIBRARY --------------------
+    # -------------------- LIBRARY METHODS --------------------
 
     def refresh_library(self):
+        """Reload all books from DB and display in treeview."""
         self.tree.delete(*self.tree.get_children())
         self.library_cache = self.db.get_all_books()
 
         for row in self.library_cache:
-            self.tree.insert("", tk.END, values=(
-                row[0], row[1], row[2], row[3], row[4], row[6], row[7]
-            ))
+            self.tree.insert("", tk.END, values=(row[0], row[1], row[2], row[3], row[4], row[6], row[7]))
 
     def filter_library(self, event=None):
+        """
+        Filter library treeview based on search entry.
+
+        Args:
+            event: Tkinter event (optional)
+        """
         query = self.library_search.get().lower().strip()
         self.tree.delete(*self.tree.get_children())
-
         for row in self.library_cache:
             text = " ".join(str(x).lower() for x in row)
             if query in text:
-                self.tree.insert("", tk.END, values=(
-                    row[0], row[1], row[2], row[3], row[4], row[6], row[7]
-                ))
+                self.tree.insert("", tk.END, values=(row[0], row[1], row[2], row[3], row[4], row[6], row[7]))
 
-    # -------------------- LOANS --------------------
+    # -------------------- LOAN METHODS --------------------
 
     def on_loan_scan(self, event):
+        """
+        Handle scanning or entry of book to loan out.
+
+        Args:
+            event: Tkinter event
+        """
         code = self.loan_entry.get().strip()
         self.loan_entry.delete(0, tk.END)
-
         if not code:
             return
 
@@ -266,24 +336,33 @@ class MainWindow:
         self.refresh_loans()
 
     def refresh_loans(self):
+        """Reload all loan entries from DB and display in treeview."""
         self.loan_tree.delete(*self.loan_tree.get_children())
         self.loans_cache = self.db.get_all_loans()
-
         for row in self.loans_cache:
             self.loan_tree.insert("", tk.END, values=row)
 
     def filter_loans(self, event=None):
+        """
+        Filter loans treeview based on search entry.
+
+        Args:
+            event: Tkinter event (optional)
+        """
         query = self.loan_search.get().lower().strip()
         self.loan_tree.delete(*self.loan_tree.get_children())
-
         for row in self.loans_cache:
             text = " ".join(str(x).lower() for x in row)
             if query in text:
                 self.loan_tree.insert("", tk.END, values=row)
 
-    # -------------------- RETURN LOANED BOOK --------------------
-
     def on_loan_return(self, event):
+        """
+        Handle returning a loaned book when double-clicking a loan entry.
+
+        Args:
+            event: Tkinter double-click event
+        """
         selected = self.loan_tree.selection()
         if not selected:
             return
@@ -294,9 +373,7 @@ class MainWindow:
         if not messagebox.askyesno("Return Book", f"Return book?\n\n{title}"):
             return
 
-        # Use the new return_loan method which handles count increment
         success = self.db.return_loan(title, borrower, loan_date)
-
         if success:
             messagebox.showinfo("Returned", f"{title} returned from {borrower}")
             self.refresh_library()

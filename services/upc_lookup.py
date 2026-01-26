@@ -1,13 +1,46 @@
+"""
+upc_lookup.py
+
+Service to look up products (including books) using their UPC codes.
+
+Data Inputs:
+- upc (str): A 12-digit or 13-digit UPC code string.
+
+Data Outputs:
+- lookup(upc): Returns a dictionary with metadata for the product/book.
+
+Returned dictionary keys:
+- title (str): Product or book title
+- author (str): Brand name (for books, can serve as publisher)
+- publisher (str): Same as author/brand
+- summary (str): Empty string (UPC does not provide summary)
+- keywords (str): Product category from UPC database
+"""
+
 import requests
 
 class UPCLookupService:
+    """
+    Service that retrieves metadata for a given UPC code using the UPCitemdb API.
+    """
+
     BASE_URL = "https://api.upcitemdb.com/prod/trial/lookup"
 
     def lookup(self, upc):
         """
-        Lookup a UPC code.
-        Returns a dict:
-            {'title': ..., 'brand': ..., 'category': ...}
+        Lookup a UPC code and return book/product metadata.
+
+        Args:
+            upc (str): The UPC code to search for.
+
+        Returns:
+            dict: Metadata dictionary containing:
+                - 'title': product title (str)
+                - 'author': brand name / publisher (str)
+                - 'publisher': brand name / publisher (str)
+                - 'summary': empty string (str)
+                - 'keywords': category (str)
+            Returns an empty dict if lookup fails or no results found.
         """
         upc = upc.strip()
         try:
@@ -25,7 +58,7 @@ class UPCLookupService:
 
             return {
                 "title": item.get("title"),
-                "author": item.get("brand"),  # For books, brand can be publisher
+                "author": item.get("brand"),  # For books, brand can serve as publisher
                 "publisher": item.get("brand"),
                 "summary": "",
                 "keywords": item.get("category")

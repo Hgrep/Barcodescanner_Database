@@ -1,12 +1,42 @@
+"""
+isbn_lookup.py
+
+Service to look up book metadata using ISBN or UPC codes via the EANSearch API.
+
+Data Inputs:
+- code (str): An ISBN-10, ISBN-13, or UPC barcode string.
+
+Data Outputs:
+- lookup(code): Returns a tuple (isbn, title)
+    isbn (str | None): ISBN-10 of the book if found, else None
+    title (str | None): Title of the book if found, else None
+"""
+
 from eansearch import EANSearch
 from config import EANSEARCH_API_KEY
 
-
 class ISBNLookupService:
+    """
+    Service for ISBN and UPC lookups using EANSearch API.
+    Handles ISBN-10, ISBN-13, and UPC codes.
+    """
+
     def __init__(self):
+        """Initialize the EANSearch client using API key."""
         self.client = EANSearch(EANSEARCH_API_KEY)
 
     def lookup(self, code):
+        """
+        Lookup a book title and ISBN using a code (ISBN-10/13 or UPC).
+
+        Args:
+            code (str): ISBN-10, ISBN-13, or UPC barcode.
+
+        Returns:
+            tuple: (isbn, title)
+                isbn (str | None): ISBN-10 if found, else None
+                title (str | None): Book title if found, else None
+        """
         print("LOOKUP INPUT:", repr(code))
 
         try:
@@ -24,6 +54,7 @@ class ISBNLookupService:
                 print("EANSEARCH TITLE:", repr(title))
                 return code, title
 
+            # If not ISBN, treat as UPC
             product = self.client.barcodeSearch(code, 1)
             print("PRODUCT SEARCH RESULT:", repr(product))
 
@@ -38,7 +69,13 @@ class ISBNLookupService:
 
     def _isbn13_to_isbn10(self, isbn13):
         """
-        Convert ISBN-13 → ISBN-10
+        Convert an ISBN-13 string to ISBN-10.
+
+        Args:
+            isbn13 (str): ISBN-13 string starting with 978 or 979.
+
+        Returns:
+            str: ISBN-10 string.
         """
         core = isbn13[3:-1]
         total = 0
