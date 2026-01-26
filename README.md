@@ -92,5 +92,5 @@ cd book-barcode-scanner
 
 pip install -r requirements.txt
 
-python ui/main_window.py
+python app.py
 
