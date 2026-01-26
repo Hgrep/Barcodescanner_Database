@@ -85,6 +85,13 @@ Metadata enrichment always generates keywords from the summary.
 ## Installation
 
 1. Clone the repository:
+---
+
+
+## Build .exe (Windows)
+pip install pyinstaller
+#run in root directory
+pyinstaller --onefile --windowed --name "BookScanner" app.py
 
 ```bash
 git clone https://github.com/yourusername/book-barcode-scanner.git
@@ -94,10 +101,3 @@ pip install -r requirements.txt
 
 python app.py
 
----
-
-
-## Build .exe (Windows)
-pip install pyinstaller
-#run in root directory
-pyinstaller --onefile --windowed --name "BookScanner" app.py
