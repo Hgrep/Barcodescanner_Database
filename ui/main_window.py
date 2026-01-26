@@ -127,6 +127,9 @@ class MainWindow:
 
         ttk.Button(frame, text="Refresh Loans", command=self.refresh_loans).pack()
 
+        # Bind double-click to return loaned book
+        self.loan_tree.bind("<Double-1>", self.on_loan_return)
+
     # -------------------- SORTING --------------------
 
     def sort_by(self, col, descending):
@@ -212,7 +215,6 @@ class MainWindow:
 
     def refresh_library(self):
         self.tree.delete(*self.tree.get_children())
-
         self.library_cache = self.db.get_all_books()
 
         for row in self.library_cache:
@@ -222,12 +224,10 @@ class MainWindow:
 
     def filter_library(self, event=None):
         query = self.library_search.get().lower().strip()
-
         self.tree.delete(*self.tree.get_children())
 
         for row in self.library_cache:
             text = " ".join(str(x).lower() for x in row)
-
             if query in text:
                 self.tree.insert("", tk.END, values=(
                     row[0], row[1], row[2], row[3], row[4], row[6], row[7]
@@ -243,13 +243,11 @@ class MainWindow:
             return
 
         book = self.db.find_book_by_barcode(code)
-
         if not book:
             messagebox.showerror("Not Found", "Book not found in library")
             return
 
         book_id, title, count = book
-
         if count <= 0:
             messagebox.showwarning("Unavailable", f"No available copies:\n\n{title}")
             return
@@ -258,12 +256,10 @@ class MainWindow:
             return
 
         borrower = simpledialog.askstring("Borrower", "Enter borrower's name:")
-
         if not borrower:
             return
 
         self.db.loan_book(book_id, borrower)
-
         messagebox.showinfo("Loan Recorded", f"{title}\n\nLoaned to: {borrower}")
 
         self.refresh_library()
@@ -271,7 +267,6 @@ class MainWindow:
 
     def refresh_loans(self):
         self.loan_tree.delete(*self.loan_tree.get_children())
-
         self.loans_cache = self.db.get_all_loans()
 
         for row in self.loans_cache:
@@ -279,11 +274,32 @@ class MainWindow:
 
     def filter_loans(self, event=None):
         query = self.loan_search.get().lower().strip()
-
         self.loan_tree.delete(*self.loan_tree.get_children())
 
         for row in self.loans_cache:
             text = " ".join(str(x).lower() for x in row)
-
             if query in text:
                 self.loan_tree.insert("", tk.END, values=row)
+
+    # -------------------- RETURN LOANED BOOK --------------------
+
+    def on_loan_return(self, event):
+        selected = self.loan_tree.selection()
+        if not selected:
+            return
+
+        item = self.loan_tree.item(selected[0])
+        title, borrower, loan_date = item["values"]
+
+        if not messagebox.askyesno("Return Book", f"Return book?\n\n{title}"):
+            return
+
+        # Use the new return_loan method which handles count increment
+        success = self.db.return_loan(title, borrower, loan_date)
+
+        if success:
+            messagebox.showinfo("Returned", f"{title} returned from {borrower}")
+            self.refresh_library()
+            self.refresh_loans()
+        else:
+            messagebox.showerror("Error", "Could not find this loan entry")

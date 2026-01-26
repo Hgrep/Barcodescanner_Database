@@ -94,6 +94,7 @@ class DatabaseService:
     # ---------------- LOANS ----------------
 
     def loan_book(self, book_id, borrower):
+        """Create a loan entry and decrement the available count."""
         cur = self.conn.cursor()
 
         cur.execute("""
@@ -120,3 +121,36 @@ class DatabaseService:
         ORDER BY l.loan_date DESC
         """)
         return cur.fetchall()
+
+    # ---------------- RETURN LOAN ----------------
+
+    def return_loan(self, title, borrower, loan_date):
+        """Remove loan entry and increment the book's available count."""
+        cur = self.conn.cursor()
+
+        # Find the loaned book_id
+        cur.execute("""
+        SELECT b.id
+        FROM books b
+        JOIN loans l ON l.book_id = b.id
+        WHERE b.title=? AND l.borrower=? AND l.loan_date=?
+        """, (title, borrower, loan_date))
+        row = cur.fetchone()
+        if not row:
+            return False  # Loan not found
+
+        book_id = row[0]
+
+        # Delete loan entry
+        cur.execute("""
+        DELETE FROM loans
+        WHERE book_id=? AND borrower=? AND loan_date=?
+        """, (book_id, borrower, loan_date))
+
+        # Increment book count
+        cur.execute("""
+        UPDATE books SET count = count + 1 WHERE id=?
+        """, (book_id,))
+
+        self.conn.commit()
+        return True
