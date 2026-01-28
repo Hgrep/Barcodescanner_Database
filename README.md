@@ -94,7 +94,7 @@ pip install pyinstaller
 pyinstaller --onefile --windowed --name "BookScanner" app.py
 
 ```bash
-git clone https://github.com/yourusername/book-barcode-scanner.git
+git clone https://github.com/Hgrep/Barcodescanner_Database
 cd book-barcode-scanner
 
 pip install -r requirements.txt
