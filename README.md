@@ -88,10 +88,6 @@ Metadata enrichment always generates keywords from the summary.
 ---
 
 
-## Build .exe (Windows)
-pip install pyinstaller
-#run in root directory
-pyinstaller --onefile --windowed --name "BookScanner" app.py
 
 ```bash
 # Clone the repository
@@ -103,5 +99,16 @@ pip install -r requirements.txt
 
 # Run the application
 python app.py
+```
+## Build .exe (Windows)
+pip install pyinstaller
+#run in root directory
+pyinstaller --onefile --windowed --name "BookScanner" app.py
 
+```bash
+# Install PyInstaller
+pip install pyinstaller
+
+# Build a standalone executable (run this in the root directory)
+pyinstaller --onefile --windowed --name "BookScanner" app.py
 
