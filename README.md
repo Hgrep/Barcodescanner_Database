@@ -3,6 +3,8 @@
 A desktop application to manage a personal or small library using barcode scanning.  
 Supports scanning books, enriching metadata from online sources, managing loans, and tracking availability.
 
+Consult Manual.pdf for details of user interface and usage.
+
 ---
 
 ## Features
