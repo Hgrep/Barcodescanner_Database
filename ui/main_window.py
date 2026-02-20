@@ -25,6 +25,8 @@ from services.scanner import ScannerService
 from services.database import DatabaseService
 from services.isbn_lookup import ISBNLookupService
 from services.metadata_pipeline import MetadataPipeline
+from services.card_printer import LibraryCardPrinter
+from tkinter import filedialog
 
 
 class MainWindow:
@@ -40,6 +42,7 @@ class MainWindow:
         Args:
             root (tk.Tk): The Tkinter root window.
         """
+        
         self.root = root
         self.root.title("Book Barcode Scanner")
 
@@ -53,6 +56,8 @@ class MainWindow:
         self.library_cache = []
         self.loans_cache = []
 
+        self.active_borrower = None
+
         self._build_ui()
 
     # -------------------- UI BUILDING --------------------
@@ -65,14 +70,17 @@ class MainWindow:
         self.scan_tab = ttk.Frame(notebook)
         self.library_tab = ttk.Frame(notebook)
         self.loans_tab = ttk.Frame(notebook)
+        self.cards_tab = ttk.Frame(notebook)
 
         notebook.add(self.scan_tab, text="Scanner")
         notebook.add(self.library_tab, text="Library")
         notebook.add(self.loans_tab, text="Loans")
+        notebook.add(self.cards_tab, text="Library Cards")
 
         self._build_scan_tab()
         self._build_library_tab()
         self._build_loans_tab()
+        self._build_cards_tab()
 
     # -------------------- SCANNER TAB --------------------
 
@@ -136,6 +144,22 @@ class MainWindow:
     # -------------------- LOANS TAB --------------------
 
     def _build_loans_tab(self):
+        frame = ttk.Frame(self.loans_tab, padding=10)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(frame, text="Scan library card").pack(anchor="w")
+
+        self.card_entry = ttk.Entry(frame)
+        self.card_entry.pack(fill=tk.X, pady=5)
+        self.card_entry.bind("<Return>", self.on_card_scan)
+
+        self.borrower_label = ttk.Label(
+            frame,
+            text="No borrower selected",
+            foreground="red"
+        )
+        self.borrower_label.pack(anchor="w", pady=(0, 10))
+
         """Create loans tab with scan entry, search, and loan treeview."""
         frame = ttk.Frame(self.loans_tab, padding=10)
         frame.pack(fill=tk.BOTH, expand=True)
@@ -325,7 +349,14 @@ class MainWindow:
         if not messagebox.askyesno("Confirm Loan", f"Loan out:\n\n{title}?"):
             return
 
-        borrower = simpledialog.askstring("Borrower", "Enter borrower's name:")
+        if not self.active_borrower:
+            messagebox.showwarning(
+                "No Borrower",
+                "Please scan a library card first."
+            )
+            return
+
+        borrower = self.active_borrower
         if not borrower:
             return
 
@@ -336,9 +367,16 @@ class MainWindow:
         self.refresh_loans()
 
     def refresh_loans(self):
-        """Reload all loan entries from DB and display in treeview."""
         self.loan_tree.delete(*self.loan_tree.get_children())
-        self.loans_cache = self.db.get_all_loans()
+
+        if not self.active_borrower:
+            return
+
+        self.loans_cache = [
+            row for row in self.db.get_all_loans()
+            if row[1] == self.active_borrower
+        ]
+
         for row in self.loans_cache:
             self.loan_tree.insert("", tk.END, values=row)
 
@@ -380,3 +418,168 @@ class MainWindow:
             self.refresh_loans()
         else:
             messagebox.showerror("Error", "Could not find this loan entry")
+
+    # -------------------- LIBRARY CARDS TAB --------------------
+
+    def _build_cards_tab(self):
+        """Create Library Cards tab for managing accounts."""
+        frame = ttk.Frame(self.cards_tab, padding=10)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        # Input section
+        input_frame = ttk.Frame(frame)
+        input_frame.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Label(
+            input_frame,
+            text="Enter account names (one per line):"
+        ).pack(anchor="w")
+
+        self.account_text = tk.Text(input_frame, height=6)
+        self.account_text.pack(fill=tk.X, pady=5)
+
+        ttk.Button(
+            input_frame,
+            text="Create Accounts",
+            command=self.create_accounts
+        ).pack(anchor="e")
+
+        # Accounts list
+        list_frame = ttk.Frame(frame)
+        list_frame.pack(fill=tk.BOTH, expand=True)
+
+        cols = ("ID", "Name")
+        self.accounts_tree = ttk.Treeview(
+            list_frame,
+            columns=cols,
+            show="headings",
+            selectmode="extended"
+        )
+
+        self.accounts_tree.heading("ID", text="ID")
+        self.accounts_tree.heading("Name", text="Name")
+        self.accounts_tree.column("ID", width=80, anchor="center")
+        self.accounts_tree.column("Name", width=300, anchor="w")
+
+        self.accounts_tree.pack(fill=tk.BOTH, expand=True)
+
+        # Buttons
+        controls = ttk.Frame(frame)
+        controls.pack(fill=tk.X, pady=6)
+
+        ttk.Button(
+            controls,
+            text="Refresh Accounts",
+            command=self.refresh_accounts
+        ).pack(side=tk.LEFT)
+
+        ttk.Button(
+            controls,
+            text="Print Cards",
+            command=self.print_library_cards
+        ).pack(side=tk.RIGHT)
+
+    def create_accounts(self):
+        """Create library accounts from text input."""
+        raw = self.account_text.get("1.0", tk.END)
+        names = [n.strip() for n in raw.splitlines() if n.strip()]
+
+        if not names:
+            messagebox.showwarning(
+                "No Input",
+                "Please enter at least one account name."
+            )
+            return
+
+        created = 0
+        for name in names:
+            self.db.create_account(name)
+            created += 1
+
+        self.account_text.delete("1.0", tk.END)
+        self.refresh_accounts()
+
+        messagebox.showinfo(
+            "Accounts Created",
+            f"{created} account(s) processed."
+        )
+
+    def refresh_accounts(self):
+        """Reload accounts from DB into treeview."""
+        self.accounts_tree.delete(*self.accounts_tree.get_children())
+
+        for account_id, name in self.db.get_all_accounts():
+            self.accounts_tree.insert(
+                "",
+                tk.END,
+                values=(account_id, name)
+            )
+    
+    def print_library_cards(self):
+        """
+        Generate a double-sided A4 PDF of Code 128 library cards.
+        Uses selected accounts; if none selected, prints all.
+        """
+        selected = self.accounts_tree.selection()
+
+        if selected:
+            names = [
+                self.accounts_tree.item(item)["values"][1]
+                for item in selected
+            ]
+        else:
+            names = [name for _, name in self.db.get_all_accounts()]
+
+        if not names:
+            messagebox.showwarning(
+                "No Accounts",
+                "No accounts available to print."
+            )
+            return
+
+        output_path = filedialog.asksaveasfilename(
+            title="Save Library Cards PDF",
+            defaultextension=".pdf",
+            filetypes=[("PDF files", "*.pdf")]
+        )
+
+        if not output_path:
+            return
+
+        try:
+            printer = LibraryCardPrinter(output_path)
+            printer.generate_pdf(names)
+
+            messagebox.showinfo(
+                "Cards Generated",
+                f"Library cards created:\n\n{output_path}"
+            )
+
+        except Exception as e:
+            messagebox.showerror(
+                "Error",
+                f"Failed to generate cards:\n\n{e}"
+            )
+
+    def on_card_scan(self, event):
+        name = self.card_entry.get().strip()
+        self.card_entry.delete(0, tk.END)
+
+        if not name:
+            return
+
+        # Optional validation against accounts table
+        if self.db.get_account_by_name(name) is None:
+            if not messagebox.askyesno(
+                "Unknown Borrower",
+                f"'{name}' is not in accounts.\n\nUse anyway?"
+            ):
+                return
+
+        self.active_borrower = name
+        self.borrower_label.config(
+            text=f"Borrower: {name}",
+            foreground="green"
+        )
+
+        self.refresh_loans()
