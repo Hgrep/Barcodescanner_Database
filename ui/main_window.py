@@ -147,50 +147,66 @@ class MainWindow:
         frame = ttk.Frame(self.loans_tab, padding=10)
         frame.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(frame, text="Scan library card").pack(anchor="w")
+        # --- Library card scan row ---
+        card_frame = ttk.Frame(frame)
+        card_frame.pack(fill=tk.X)
 
-        self.card_entry = ttk.Entry(frame)
-        self.card_entry.pack(fill=tk.X, pady=5)
+        ttk.Label(card_frame, text="Scan library card").pack(side=tk.LEFT)
+
+        self.card_entry = ttk.Entry(card_frame)
+        self.card_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
         self.card_entry.bind("<Return>", self.on_card_scan)
+
+        ttk.Button(
+            card_frame,
+            text="Clear Selection",
+            command=self.clear_active_borrower
+        ).pack(side=tk.RIGHT)
 
         self.borrower_label = ttk.Label(
             frame,
             text="No borrower selected",
             foreground="red"
         )
-        self.borrower_label.pack(anchor="w", pady=(0, 10))
+        self.borrower_label.pack(anchor="w", pady=(5, 10))
 
-        """Create loans tab with scan entry, search, and loan treeview."""
-        frame = ttk.Frame(self.loans_tab, padding=10)
-        frame.pack(fill=tk.BOTH, expand=True)
-
+        # --- Book loan scan ---
         ttk.Label(frame, text="Scan book to loan out").pack(anchor="w")
 
         self.loan_entry = ttk.Entry(frame)
         self.loan_entry.pack(fill=tk.X, pady=5)
         self.loan_entry.bind("<Return>", self.on_loan_scan)
 
-        # Search bar
+        # --- Search bar ---
         search_frame = ttk.Frame(frame)
         search_frame.pack(fill=tk.X, pady=(5, 5))
+
         ttk.Label(search_frame, text="Search:").pack(side=tk.LEFT, padx=(0, 5))
         self.loan_search = ttk.Entry(search_frame)
         self.loan_search.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.loan_search.bind("<KeyRelease>", self.filter_loans)
 
-        # Treeview columns
+        # --- Loans table ---
         cols = ("Title", "Borrower", "Loan Date")
         self.loan_tree = ttk.Treeview(frame, columns=cols, show="headings")
+
         for col in cols:
             self.loan_tree.heading(col, text=col)
             self.loan_tree.column(col, width=260, anchor="w")
 
         self.loan_tree.pack(fill=tk.BOTH, expand=True, pady=5)
+
         ttk.Button(frame, text="Refresh Loans", command=self.refresh_loans).pack()
 
-        # Bind double-click to return book
         self.loan_tree.bind("<Double-1>", self.on_loan_return)
-
+    
+    def clear_active_borrower(self):
+        self.active_borrower = None
+        self.borrower_label.config(
+        text="No borrower selected",
+        foreground="red"
+        )
+        self.refresh_loans()
     # -------------------- SORTING --------------------
 
     def sort_by(self, col, descending):
@@ -369,17 +385,18 @@ class MainWindow:
     def refresh_loans(self):
         self.loan_tree.delete(*self.loan_tree.get_children())
 
-        if not self.active_borrower:
-            return
+        all_loans = self.db.get_all_loans()
 
-        self.loans_cache = [
-            row for row in self.db.get_all_loans()
-            if row[1] == self.active_borrower
-        ]
+        if self.active_borrower:
+            self.loans_cache = [
+                row for row in all_loans
+                if row[1] == self.active_borrower
+            ]
+        else:
+            self.loans_cache = all_loans
 
         for row in self.loans_cache:
             self.loan_tree.insert("", tk.END, values=row)
-
     def filter_loans(self, event=None):
         """
         Filter loans treeview based on search entry.
