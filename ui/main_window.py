@@ -299,6 +299,24 @@ class MainWindow:
             meta = self.pipeline.enrich(isbn, initial)
             self.log_stage("PIPELINE", f"metadata: {meta!r}")
 
+            # --- Manual fallback if title missing ---
+            if not meta.get("title"):
+                self.log_stage(
+                    "PIPELINE",
+                    f"No title found, prompting manual entry for {barcode}"
+                )
+
+                manual = self.prompt_manual_metadata(barcode)
+                if not manual:
+                    self.log_stage(
+                        "SKIP",
+                        f"User cancelled manual entry for {barcode}"
+                    )
+                    continue
+
+                meta["title"] = manual["title"]
+                meta["author"] = manual["author"]
+
             book = {
                 "barcode": barcode,
                 "isbn": isbn,
@@ -600,3 +618,41 @@ class MainWindow:
         )
 
         self.refresh_loans()
+    
+    def prompt_manual_metadata(self, barcode):
+        """
+        Thread-safe manual metadata prompt.
+        Blocks the worker thread until UI input completes.
+        """
+        result = {}
+        done = threading.Event()
+
+        def ui_prompt():
+            title = simpledialog.askstring(
+                "Manual Entry Required",
+                f"No title found for barcode:\n{barcode}\n\nEnter book title:",
+                parent=self.root
+            )
+
+            if not title:
+                done.set()
+                return
+
+            author = simpledialog.askstring(
+                "Manual Entry Required",
+                f"Enter author for:\n{title}",
+                parent=self.root
+            )
+
+            if not author:
+                done.set()
+                return
+
+            result["title"] = title.strip()
+            result["author"] = author.strip()
+            done.set()
+
+        self.root.after(0, ui_prompt)
+        done.wait()
+
+        return result if result else None
