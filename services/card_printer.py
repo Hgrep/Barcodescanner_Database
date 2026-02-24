@@ -182,19 +182,13 @@ class LibraryCardPrinter:
         # -------- BACK PAGES --------
         index = 0
         while index < len(account_names):
-            grid = self._card_positions_grid()
+            positions = list(self._card_positions())
 
             page_names = account_names[index:index + self.cols * self.rows]
-            name_idx = 0
 
-            for row in grid:
-                mirrored_row = list(reversed(row))  # mirror columns only
-                for (x, y) in mirrored_row:
-                    if name_idx >= len(page_names):
-                        break
-                    name = page_names[name_idx]
-                    self._draw_back(c, name, x, y)
-                    name_idx += 1
+            for (x, y), name in zip(positions, page_names):
+                mirrored_x = PAGE_WIDTH - x - self.card_w
+                self._draw_back(c, name, mirrored_x, y)
 
             c.showPage()
             index += self.cols * self.rows
