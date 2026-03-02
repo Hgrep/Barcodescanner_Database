@@ -136,6 +136,7 @@ class LibraryCardPrinter:
         c.drawCentredString(
             center_x,
             center_y + sub_size + line_gap,
+            "THE ENGLISH SCHOOL"
         )
 
         # --- Divider line ---
@@ -155,6 +156,7 @@ class LibraryCardPrinter:
         c.drawCentredString(
             center_x,
             center_y - text_gap - sub_size,
+            "ZÜRICHBERGSTRASSE 75, 8044 ZÜRICH"
         )
 
     # ---------------- PUBLIC API ----------------

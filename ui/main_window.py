@@ -618,6 +618,8 @@ class MainWindow:
         )
 
         self.refresh_loans()
+
+        self.loan_entry.focus_set()
     
     def prompt_manual_metadata(self, barcode):
         """
