@@ -186,13 +186,22 @@ class MainWindow:
         self.loan_search.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.loan_search.bind("<KeyRelease>", self.filter_loans)
 
-        # --- Loans table ---
+        # --- Loans table with instructions ---
+        info_frame = ttk.Frame(frame)
+        info_frame.pack(fill=tk.X, pady=(5, 5))
+
+        ttk.Label(
+            info_frame,
+            text="Double-click a loan entry to return the book",
+            foreground="blue"
+        ).pack(anchor="w")
+
         cols = ("Title", "Borrower", "Loan Date")
         self.loan_tree = ttk.Treeview(frame, columns=cols, show="headings")
 
         for col in cols:
             self.loan_tree.heading(col, text=col)
-            self.loan_tree.column(col, width=260, anchor="w")
+            self.loan_tree.column(col, width=200, anchor="w")
 
         self.loan_tree.pack(fill=tk.BOTH, expand=True, pady=5)
 
@@ -358,6 +367,57 @@ class MainWindow:
 
     # -------------------- LOAN METHODS --------------------
 
+    def add_book_via_pipeline(self, barcode):
+        """
+        Add a new book using ISBN lookup + metadata pipeline.
+        Returns the DB book tuple (id, title, count) or None if cancelled.
+        """
+        self.log_stage("SCAN", f"Adding new book via loan scan: {barcode}")
+
+        isbn, title = self.isbn.lookup(barcode)
+        self.log_stage("LOOKUP", f"isbn={isbn!r}, title={title!r}")
+
+        if not isbn:
+            messagebox.showerror(
+                "Lookup Failed",
+                "Could not determine ISBN for this barcode."
+            )
+            return None
+
+        initial = {
+            "title": title,
+            "author": "",
+            "publisher": "",
+            "summary": "",
+            "keywords": ""
+        }
+
+        meta = self.pipeline.enrich(isbn, initial)
+
+        if not meta.get("title"):
+            manual = self.prompt_manual_metadata(barcode)
+            if not manual:
+                return None
+
+            meta["title"] = manual["title"]
+            meta["author"] = manual["author"]
+
+        book_data = {
+            "barcode": barcode,
+            "isbn": isbn,
+            "title": meta.get("title"),
+            "author": meta.get("author", ""),
+            "publisher": meta.get("publisher", ""),
+            "summary": meta.get("summary", ""),
+            "keywords": meta.get("keywords", "")
+        }
+
+        self.db.insert_book(book_data)
+
+        self.refresh_library()
+
+        return self.db.find_book_by_barcode(barcode)
+
     def on_loan_scan(self, event):
         """
         Handle scanning or entry of book to loan out.
@@ -371,9 +431,17 @@ class MainWindow:
             return
 
         book = self.db.find_book_by_barcode(code)
+
         if not book:
-            messagebox.showerror("Not Found", "Book not found in library")
-            return
+            if not messagebox.askyesno(
+                "Book Not Found",
+                "This book is not in the database.\n\nAdd it now?"
+            ):
+                return
+
+            book = self.add_book_via_pipeline(code)
+            if not book:
+                return
 
         book_id, title, count = book
         if count <= 0:
@@ -498,6 +566,9 @@ class MainWindow:
 
         self.accounts_tree.pack(fill=tk.BOTH, expand=True)
 
+        # Right-click context menu
+        self.accounts_tree.bind("<Button-3>", self.on_accounts_right_click)
+
         # Buttons
         controls = ttk.Frame(frame)
         controls.pack(fill=tk.X, pady=6)
@@ -513,6 +584,30 @@ class MainWindow:
             text="Print Cards",
             command=self.print_library_cards
         ).pack(side=tk.RIGHT)
+
+    def on_accounts_right_click(self, event):
+        """Handle right-click on accounts tree to remove selected items."""
+        item = self.accounts_tree.identify("item", event.x, event.y)
+        if not item:
+            return
+
+        # Select the clicked item if not already selected
+        if item not in self.accounts_tree.selection():
+            self.accounts_tree.selection_set(item)
+
+        # Create context menu
+        menu = tk.Menu(self.root, tearoff=False)
+        menu.add_command(
+            label="Remove from selection",
+            command=lambda: self.remove_selected_accounts()
+        )
+        menu.post(event.x_root, event.y_root)
+
+    def remove_selected_accounts(self):
+        """Remove selected accounts from the treeview."""
+        selected = self.accounts_tree.selection()
+        for item in selected:
+            self.accounts_tree.delete(item)
 
     def create_accounts(self):
         """Create library accounts from text input."""
@@ -553,23 +648,26 @@ class MainWindow:
     def print_library_cards(self):
         """
         Generate a double-sided A4 PDF of Code 128 library cards.
-        Uses selected accounts; if none selected, prints all.
+        Uses accounts currently displayed in the treeview.
         """
-        selected = self.accounts_tree.selection()
-
-        if selected:
-            names = [
-                self.accounts_tree.item(item)["values"][1]
-                for item in selected
-            ]
-        else:
-            names = [name for _, name in self.db.get_all_accounts()]
+        # Get all visible accounts from the treeview
+        names = [
+            self.accounts_tree.item(item)["values"][1]
+            for item in self.accounts_tree.get_children()
+        ]
 
         if not names:
             messagebox.showwarning(
                 "No Accounts",
-                "No accounts available to print."
+                "No accounts to print. Please refresh the account list."
             )
+            return
+
+        # Confirm before generating
+        if not messagebox.askyesno(
+            "Confirm Print",
+            f"Print library cards for {len(names)} account(s)?"
+        ):
             return
 
         output_path = filedialog.asksaveasfilename(
@@ -587,7 +685,7 @@ class MainWindow:
 
             messagebox.showinfo(
                 "Cards Generated",
-                f"Library cards created:\n\n{output_path}"
+                f"Library cards created for {len(names)} account(s):\n\n{output_path}"
             )
 
         except Exception as e:
