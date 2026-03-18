@@ -421,52 +421,35 @@ class MainWindow:
     def on_loan_scan(self, event):
         """
         Handle scanning or entry of book to loan out.
-
-        Args:
-            event: Tkinter event
         """
+
         code = self.loan_entry.get().strip()
         self.loan_entry.delete(0, tk.END)
+
         if not code:
             return
 
         book = self.db.find_book_by_barcode(code)
 
+        # --- Book not in database ---
         if not book:
+
             if not messagebox.askyesno(
                 "Book Not Found",
                 "This book is not in the database.\n\nAdd it now?"
             ):
                 return
 
-            book = self.add_book_via_pipeline(code)
-            if not book:
-                return
+            threading.Thread(
+                target=self._loan_add_and_continue,
+                args=(code,),
+                daemon=True
+            ).start()
 
-        book_id, title, count = book
-        if count <= 0:
-            messagebox.showwarning("Unavailable", f"No available copies:\n\n{title}")
             return
 
-        if not messagebox.askyesno("Confirm Loan", f"Loan out:\n\n{title}?"):
-            return
-
-        if not self.active_borrower:
-            messagebox.showwarning(
-                "No Borrower",
-                "Please scan a library card first."
-            )
-            return
-
-        borrower = self.active_borrower
-        if not borrower:
-            return
-
-        self.db.loan_book(book_id, borrower)
-        messagebox.showinfo("Loan Recorded", f"{title}\n\nLoaned to: {borrower}")
-
-        self.refresh_library()
-        self.refresh_loans()
+        # --- Book exists ---
+        self._complete_loan(code)
 
     def refresh_loans(self):
         self.loan_tree.delete(*self.loan_tree.get_children())
@@ -756,3 +739,60 @@ class MainWindow:
         done.wait()
 
         return result if result else None
+    
+    def _loan_add_and_continue(self, barcode):
+        """
+        Worker thread:
+        Add a book via pipeline then continue the loan process.
+        """
+
+        book = self.add_book_via_pipeline(barcode)
+
+        if not book:
+            return
+
+        # continue loan on UI thread
+        self.root.after(0, lambda: self._complete_loan(barcode))
+
+    def _complete_loan(self, barcode):
+        """
+        Final loan logic once book exists.
+        """
+
+        book = self.db.find_book_by_barcode(barcode)
+        if not book:
+            return
+
+        book_id, title, count = book
+
+        if count <= 0:
+            messagebox.showwarning(
+                "Unavailable",
+                f"No available copies:\n\n{title}"
+            )
+            return
+
+        if not self.active_borrower:
+            messagebox.showwarning(
+                "No Borrower",
+                "Please scan a library card first."
+            )
+            return
+
+        if not messagebox.askyesno(
+            "Confirm Loan",
+            f"Loan out:\n\n{title}?"
+        ):
+            return
+
+        borrower = self.active_borrower
+
+        self.db.loan_book(book_id, borrower)
+
+        messagebox.showinfo(
+            "Loan Recorded",
+            f"{title}\n\nLoaned to: {borrower}"
+        )
+
+        self.refresh_library()
+        self.refresh_loans()
