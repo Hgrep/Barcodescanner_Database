@@ -45,6 +45,7 @@ class MainWindow:
         
         self.root = root
         self.root.title("Book Barcode Scanner")
+        self.scan_mode = "normal"  # "normal" or "sticker"
 
         # Services
         self.scanner = ScannerService()
@@ -94,6 +95,7 @@ class MainWindow:
 
         ttk.Button(controls, text="Start Scan", command=self.start_scan).pack(side=tk.LEFT, padx=5)
         ttk.Button(controls, text="Stop & Process", command=self.stop_scan).pack(side=tk.LEFT, padx=5)
+        ttk.Button(controls, text="Start Sticker Scan", command=self.start_sticker_scan).pack(side=tk.LEFT, padx=5)
 
         self.scan_entry = ttk.Entry(frame)
         self.scan_entry.pack(fill=tk.X, pady=5)
@@ -255,15 +257,31 @@ class MainWindow:
 
     def start_scan(self):
         """Start scanning and clear previous buffer."""
+        self.scan_mode = "normal"
         self.scanner.start()
         self.scan_entry.focus_set()
         self.log_stage("STATE", "Scanning started")
 
+    def start_sticker_scan(self):
+        """Start scanning in sticker/manual metadata mode."""
+        self.scan_mode = "sticker"
+        self.scanner.start()
+        self.scan_entry.focus_set()
+        self.log_stage("STATE", "Sticker scan started (manual metadata mode)")
+
     def stop_scan(self):
-        """Stop scanning and process buffered barcodes asynchronously."""
         scans = self.scanner.stop()
         self.log_stage("STATE", f"Processing {len(scans)} barcodes...")
-        threading.Thread(target=self.process_scans, args=(scans,), daemon=True).start()
+
+        mode = self.scan_mode  # snapshot BEFORE reset
+
+        threading.Thread(
+            target=self.process_scans,
+            args=(scans, mode),
+            daemon=True
+        ).start()
+
+        self.scan_mode = "normal"
 
     def on_scan(self, event):
         """
@@ -280,7 +298,7 @@ class MainWindow:
         self.scanner.add_scan(code)
         self.log_stage("SCAN", f"Scanned: {code}")
 
-    def process_scans(self, scans):
+    def process_scans(self, scans, scan_mode):
         """
         Process scanned barcodes: lookup ISBN, enrich metadata, and insert into DB.
 
@@ -289,6 +307,9 @@ class MainWindow:
         """
         for barcode in scans:
             self.log_stage("SCAN", f"Raw barcode: {barcode!r}")
+            if scan_mode == "sticker":
+                self._process_sticker_scan(barcode)
+                continue
 
             isbn, title = self.isbn.lookup(barcode)
             self.log_stage("LOOKUP", f"isbn={isbn!r}, title={title!r}")
@@ -340,6 +361,31 @@ class MainWindow:
             self.log_stage("DB", f"{result.upper()}: {book['title']}")
 
         self.root.after(0, self.refresh_library)
+    
+    def _process_sticker_scan(self, barcode):
+        """
+        Sticker mode:
+        No external lookup. Fully manual metadata entry.
+        """
+
+        manual = self.prompt_full_metadata(barcode)
+
+        if not manual:
+            self.log_stage("SKIP", f"Manual entry cancelled: {barcode}")
+            return
+
+        book = {
+            "barcode": barcode,
+            "isbn": barcode,  # treat barcode as ISBN directly
+            "title": manual["title"],
+            "author": manual["author"],
+            "publisher": "Manual Entry",
+            "summary": "Manual Entry",
+            "keywords":"Manual Entry"
+        }
+
+        result = self.db.insert_book(book)
+        self.log_stage("DB", f"{result.upper()}: {book['title']}")
 
     # -------------------- LIBRARY METHODS --------------------
 
@@ -702,15 +748,18 @@ class MainWindow:
 
         self.loan_entry.focus_set()
     
+    def _force_dialog_focus(self, window):
+        window.lift()
+        window.attributes("-topmost", True)
+        window.after(100, lambda: window.attributes("-topmost", False))
+
     def prompt_manual_metadata(self, barcode):
-        """
-        Thread-safe manual metadata prompt.
-        Blocks the worker thread until UI input completes.
-        """
         result = {}
         done = threading.Event()
 
         def ui_prompt():
+            self._force_dialog_focus(self.root)
+
             title = simpledialog.askstring(
                 "Manual Entry Required",
                 f"No title found for barcode:\n{barcode}\n\nEnter book title:",
@@ -720,6 +769,8 @@ class MainWindow:
             if not title:
                 done.set()
                 return
+
+            self._force_dialog_focus(self.root)
 
             author = simpledialog.askstring(
                 "Manual Entry Required",
@@ -740,6 +791,46 @@ class MainWindow:
 
         return result if result else None
     
+    def prompt_full_metadata(self, barcode):
+        result = {}
+        done = threading.Event()
+
+        def ui_prompt():
+            self._force_dialog_focus(self.root)
+
+            title = simpledialog.askstring(
+                "Sticker Scan",
+                f"Barcode: {barcode}\n\nEnter title:",
+                parent=self.root
+            )
+            if not title:
+                done.set()
+                return
+
+            self._force_dialog_focus(self.root)
+
+            author = simpledialog.askstring(
+                "Sticker Scan",
+                "Enter author:",
+                parent=self.root
+            )
+            if not author:
+                done.set()
+                return
+
+            result.update({
+                "title": title.strip(),
+                "author": author.strip(),
+                "summary": "",
+                "keywords": ""
+            })
+
+            done.set()
+
+        self.root.after(0, ui_prompt)
+        done.wait()
+
+        return result if result else None
     def _loan_add_and_continue(self, barcode):
         """
         Worker thread:
